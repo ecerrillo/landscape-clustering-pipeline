@@ -1,0 +1,2 @@
+dem,crs,minx,miny,maxx,maxy
+data/dem/sample_tile.tif,EPSG:25829,708000.0,4390000.0,709000.0,4391000.0

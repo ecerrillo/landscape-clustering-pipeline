@@ -1,0 +1,12 @@
+# Generated results (recreated by running the pipeline)
+outputs/
+rasters/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store

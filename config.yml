@@ -1,0 +1,98 @@
+# Self-contained demo configuration for script_def/.
+# Points at the bundled sample DEM tile (data/dem/sample_tile.tif) and the
+# 225-point subset (data/points.gpkg) so the pipeline can be run end-to-end
+# with no external data. Clustering thresholds are scaled down for this small
+# sample; see config.example.yml in the parent project for full documentation
+# of every option.
+
+paths:
+  dem_index: "data/index.csv"
+  points_gpkg: "data/points.gpkg"
+  points_layer: null
+  output_dir: "outputs"
+  rasters_dir: "rasters"
+
+crs:
+  analysis_crs: "EPSG:25829"
+
+raster:
+  target_resolution: 2.0
+  tpi_scales: [20.0]
+  slope: true
+  aspect: true
+  curvature: true
+  flow_accumulation: true
+  distance_to_drainage: true
+  drainage_flowacc_quantile: 0.9
+  drainage_min_flowacc: null
+
+sampling:
+  buffer_radius: 100.0
+
+point_filter:
+  enable: true
+  field: "Material"
+  exclude_values:
+    - "Cerámica a torno"
+    - "Constructivo"
+  case_sensitive: false
+  strip_whitespace: true
+  normalize_accents: true
+
+clustering:
+  # Scaled down for a 225-point demo sample (main project uses 40/20 on ~3600 points).
+  min_cluster_size: 15
+  min_samples: 8
+  directional_path_cost:
+    cutoff_radius_m: 300.0
+    n_samples: 20
+    uphill_penalty: 6.0
+    downhill_penalty: 0.5
+    unreachable_distance_factor: 10.0
+  postprocess:
+    enforce_max_cluster_diameter: true
+    max_cluster_diameter_m: 700.0
+    min_subcluster_size: 15
+
+taphonomy:
+  enable: true
+  critical_slope_deg: 10.0
+  slope_smooth_radius_m: 15.0
+  coarse_tpi_radius_m: 100.0
+  tpi_sd_threshold: 0.5
+
+cluster_diagnostics:
+  enable: true
+  nn:
+    compute: true
+    max_distance: 200.0
+  ripley:
+    compute: true
+    radii: [10.0, 25.0, 50.0, 100.0, 250.0, 500.0]
+  density:
+    compute: true
+    bandwidths: [25.0, 50.0]
+
+features_sub:
+  material_layer_field: "layer"
+
+plots:
+  make_histograms: true
+  make_cluster_prob_hist: true
+  make_boxplots: true
+  make_pairplot: true
+
+output:
+  save_gpkg: true
+  gpkg_path: "outputs/points_enriched.gpkg"
+  gpkg_layer: "points_enriched"
+  save_tables_csv: true
+  save_tables_parquet: true
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "outputs/logs/run.log"
+
+random:
+  seed: 42

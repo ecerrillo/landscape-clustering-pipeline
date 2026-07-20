@@ -1,0 +1,23 @@
+# Core dependencies (pinned to the versions this pipeline was developed and
+# tested against; other recent versions will likely work too).
+rasterio==1.4.3
+geopandas==1.1.1
+numpy==2.3.3
+pandas==2.3.2
+scipy==1.16.2
+scikit-learn==1.7.2
+hdbscan==0.8.41
+pyproj==3.7.2
+shapely==2.1.1
+PyYAML==6.0.3
+GDAL==3.13.0
+fiona==1.10.1
+matplotlib==3.10.6
+
+# Optional (the pipeline degrades gracefully without these; see README.md)
+seaborn==0.13.2
+pyarrow==24.0.0
+# richdem speeds up flow accumulation; falls back to a built-in D8
+# implementation if not installed. Not published for all platforms/Python
+# versions, so left commented out by default.
+# richdem
