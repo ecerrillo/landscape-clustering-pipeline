@@ -8,9 +8,9 @@ DEM tile, 225 points) so it can be verified with no external data.
 This pipeline evaluates whether the apparent scarcity of settlement evidence
 around a site is a genuine behavioural signal or an artefact of detectability,
 by testing the spatial coherence of surface artefact scatters against terrain
-structure. From a LiDAR-derived DEM it computes slope, aspect, curvature,
-topographic position and drainage-distance rasters, then classifies the
-terrain into erosion–transport–deposition zones. Artefacts are clustered with
+structure. From a LiDAR-derived DEM it computes slope and topographic position
+rasters, then classifies the terrain into erosion–transport–deposition zones.
+Artefacts are clustered with
 HDBSCAN over a terrain-cost distance matrix that models gravity-driven,
 downslope-biased displacement rather than plain planimetric proximity, so
 clusters reflect plausible taphonomic pathways instead of arbitrary spatial

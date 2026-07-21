@@ -39,7 +39,10 @@ from shapely.ops import transform as shapely_transform
 # tries to register its own, it raises ArrowKeyError. Checking availability via
 # find_spec (rather than importing) avoids loading GDAL until it is actually
 # needed, in build_dem_mosaic_vrt.
-_GDAL_AVAILABLE = importlib.util.find_spec("osgeo.gdal") is not None
+try:
+    _GDAL_AVAILABLE = importlib.util.find_spec("osgeo.gdal") is not None
+except ModuleNotFoundError:
+    _GDAL_AVAILABLE = False
 
 
 DEFAULT_NODATA = -9999.0
@@ -283,22 +286,9 @@ def _compute_derivatives_for_tile_worker(
     return tile_id, outputs, collector.records
 
 
-def compute_circular_stats(values_deg: np.ndarray) -> Dict[str, float]:
-    """Compute circular mean (degrees) for angular data such as aspect."""
-    if values_deg.size == 0:
-        return {"mean": np.nan}
-    rad = np.deg2rad(values_deg)
-    sin_mean = float(np.mean(np.sin(rad)))
-    cos_mean = float(np.mean(np.cos(rad)))
-    mean_deg = (np.degrees(np.arctan2(sin_mean, cos_mean)) + 360.0) % 360.0
-    return {"mean": float(mean_deg)}
-
-
-def compute_stats(values: np.ndarray, circular: bool = False) -> Dict[str, float]:
+def compute_stats(values: np.ndarray) -> Dict[str, float]:
     """Compute the buffer mean from a 1D array (the only statistic any
     downstream feature actually consumes; see STAT_ORDER)."""
-    if circular:
-        return compute_circular_stats(values)
     if values.size == 0:
         return {"mean": np.nan}
     return {"mean": float(np.nanmean(values))}
@@ -308,7 +298,6 @@ def raster_stats_for_point(
     src: rasterio.io.DatasetReader,
     point: Point,
     buffer_radius: float,
-    circular: bool = False,
 ) -> Dict[str, float]:
     """Sample raster values within a buffer radius around a point.
 
@@ -340,7 +329,7 @@ def raster_stats_for_point(
     mask = dist <= buffer_radius
     values = data.filled(np.nan)[mask]
     values = values[~np.isnan(values)]
-    return compute_stats(values, circular=circular)
+    return compute_stats(values)
 
 
 def sample_points_by_tile(

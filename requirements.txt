@@ -17,7 +17,3 @@ matplotlib==3.10.6
 # Optional (the pipeline degrades gracefully without these; see README.md)
 seaborn==0.13.2
 pyarrow==24.0.0
-# richdem speeds up flow accumulation; falls back to a built-in D8
-# implementation if not installed. Not published for all platforms/Python
-# versions, so left commented out by default.
-# richdem
