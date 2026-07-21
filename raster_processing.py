@@ -3,8 +3,7 @@
 Raster processing for the landscape analysis pipeline.
 
 Covers DEM tile reading, reprojection/resampling, geomorphometric derivatives
-(slope, aspect, curvature, flow accumulation, distance to drainage, TPI),
-buffer-based sampling of those rasters at artefact locations, the seamless
+(slope, TPI), buffer-based sampling of those rasters at artefact locations, the seamless
 elevation mosaic used by clustering, and the terrain-intrinsic taphonomic
 process-zone classification.
 """
@@ -14,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import logging
-from collections import deque
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,16 +27,11 @@ from rasterio.errors import WindowError
 from rasterio.transform import xy as transform_xy
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.windows import Window, from_bounds
-from scipy.ndimage import convolve, distance_transform_edt
+from scipy.ndimage import convolve
 from scipy.signal import fftconvolve
 from shapely import wkt
 from shapely.geometry import Point, box
 from shapely.ops import transform as shapely_transform
-
-try:
-    import richdem as rd  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    rd = None
 
 # GDAL is only needed for the directional_path_cost elevation mosaic. Importing
 # osgeo.gdal eagerly registers GDAL's built-in Arrow/Parquet drivers, which
@@ -179,18 +172,11 @@ def write_raster(
         dst.write(out, 1)
 
 
-def compute_slope_aspect(
-    elev: np.ndarray, res_x: float, res_y: float
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute slope (degrees) and downslope aspect (compass degrees, 0=N, clockwise)."""
+def compute_slope(elev: np.ndarray, res_x: float, res_y: float) -> np.ndarray:
+    """Compute slope (degrees)."""
     dz_dy, dz_dx = np.gradient(elev, res_y, res_x)
     slope_rad = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
-    slope_deg = np.degrees(slope_rad)
-    # Grid rows increase southward, so the geographic gradient is (dz_dx, -dz_dy)
-    # and the downslope vector is (-dz_dx, dz_dy).
-    aspect_math = np.degrees(np.arctan2(dz_dy, -dz_dx))
-    aspect = (90.0 - aspect_math) % 360.0
-    return slope_deg, aspect
+    return np.degrees(slope_rad)
 
 
 def circular_kernel(radius: int) -> np.ndarray:
@@ -214,122 +200,6 @@ def compute_tpi(elev: np.ndarray, radius_pixels: int) -> np.ndarray:
     summed = convolve(filled, kernel, mode="constant", cval=0.0)
     mean = np.divide(summed, weights, out=np.full_like(summed, np.nan), where=weights > 0)
     return elev - mean
-
-
-def flow_accumulation_d8(elev: np.ndarray, res_x: float, res_y: float) -> np.ndarray:
-    """Compute D8 flow accumulation using a simple topological ordering."""
-    rows, cols = elev.shape
-    valid = ~np.isnan(elev)
-    flat_size = rows * cols
-    flat_index = np.arange(flat_size).reshape(rows, cols)
-
-    offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-    distances = [
-        np.hypot(res_x, res_y),
-        res_y,
-        np.hypot(res_x, res_y),
-        res_x,
-        res_x,
-        np.hypot(res_x, res_y),
-        res_y,
-        np.hypot(res_x, res_y),
-    ]
-
-    elev_pad = np.pad(elev, 1, constant_values=np.nan)
-    drops = []
-    for (dy, dx), dist in zip(offsets, distances):
-        neigh = elev_pad[1 + dy : 1 + dy + rows, 1 + dx : 1 + dx + cols]
-        drop = (elev - neigh) / dist
-        drop = np.where(np.isnan(neigh), -np.inf, drop)
-        drops.append(drop)
-
-    drop_stack = np.stack(drops, axis=0)
-    max_drop = np.max(drop_stack, axis=0)
-    direction = np.argmax(drop_stack, axis=0)
-    target = flat_index + np.array([dy * cols + dx for dy, dx in offsets])[direction]
-    target = np.where((max_drop > 0) & valid, target, -1)
-
-    indegree = np.zeros(flat_size, dtype=np.int32)
-    target_flat = target.ravel()
-    valid_targets = target_flat[target_flat >= 0]
-    np.add.at(indegree, valid_targets, 1)
-
-    accum = np.zeros(flat_size, dtype="float32")
-    accum[valid.ravel()] = 1.0
-    queue = deque(np.where((indegree == 0) & valid.ravel())[0].tolist())
-
-    while queue:
-        idx = queue.popleft()
-        t = target_flat[idx]
-        if t >= 0:
-            accum[t] += accum[idx]
-            indegree[t] -= 1
-            if indegree[t] == 0:
-                queue.append(t)
-
-    accum = accum.reshape(rows, cols)
-    accum[~valid] = np.nan
-    return accum
-
-
-def compute_flow_accumulation(
-    elev: np.ndarray, res_x: float, res_y: float
-) -> np.ndarray:
-    """Compute flow accumulation using richdem if available, otherwise D8."""
-    if rd is not None:
-        dem = rd.rdarray(elev.copy(), no_data=np.nan)
-        fa = rd.FlowAccumulation(dem, method="D8")
-        return np.array(fa, dtype="float32")
-    return flow_accumulation_d8(elev, res_x, res_y)
-
-
-def compute_curvature(elev: np.ndarray, res_x: float, res_y: float) -> np.ndarray:
-    """Compute a simple curvature proxy from second derivatives."""
-    dz_dy, dz_dx = np.gradient(elev, res_y, res_x)
-    d2z_dy2, _ = np.gradient(dz_dy, res_y, res_x)
-    _, d2z_dx2 = np.gradient(dz_dx, res_y, res_x)
-    return d2z_dx2 + d2z_dy2
-
-
-def compute_distance_to_drainage(
-    flowacc: np.ndarray,
-    res_x: float,
-    res_y: float,
-    flowacc_quantile: float,
-    min_flowacc: Optional[float],
-    logger: logging.Logger,
-) -> np.ndarray:
-    """
-    Estimate distance to drainage network from a flow-accumulation raster.
-
-    Drainage cells are defined by high flow-accumulation values using a quantile
-    threshold and optional minimum threshold. Distances are Euclidean in map units.
-    """
-    valid = ~np.isnan(flowacc)
-    out = np.full_like(flowacc, np.nan, dtype="float32")
-    if not np.any(valid):
-        return out
-
-    valid_vals = flowacc[valid]
-    q_threshold = float(np.nanquantile(valid_vals, flowacc_quantile))
-    threshold = q_threshold if min_flowacc is None else max(q_threshold, float(min_flowacc))
-
-    drainage_mask = valid & (flowacc >= threshold)
-    if not np.any(drainage_mask):
-        max_idx = np.nanargmax(np.where(valid, flowacc, np.nan))
-        drainage_mask = np.zeros_like(valid, dtype=bool)
-        drainage_mask.ravel()[int(max_idx)] = True
-        logger.warning(
-            "No drainage cells above threshold %.3f; using local maximum flowacc as fallback.",
-            threshold,
-        )
-
-    dist = distance_transform_edt(
-        ~drainage_mask,
-        sampling=(abs(float(res_y)), abs(float(res_x))),
-    ).astype("float32")
-    dist[~valid] = np.nan
-    return dist
 
 
 def compute_derivatives_for_tile(
@@ -356,61 +226,13 @@ def compute_derivatives_for_tile(
         elev = read_raster_as_float(src)
         res_x, res_y = src.res
 
-        slope = None
-        flowacc_cache: Optional[np.ndarray] = None
-
-        def ensure_flowacc() -> np.ndarray:
-            nonlocal flowacc_cache
-            if flowacc_cache is None:
-                flowacc_cache = compute_flow_accumulation(elev, res_x, res_y)
-            return flowacc_cache
-
-        if config["raster"].get("slope") or config["raster"].get("aspect"):
-            slope, aspect = compute_slope_aspect(elev, res_x, res_y)
-            if config["raster"].get("slope"):
-                slope_path = rasters_dir / "slope" / f"{tile_id}.tif"
-                if not slope_path.exists():
-                    write_raster(slope_path, slope, profile, nodata)
-                    logger.info("Saved slope raster: %s", slope_path)
-                outputs["slope"] = slope_path
-            if config["raster"].get("aspect"):
-                aspect_path = rasters_dir / "aspect" / f"{tile_id}.tif"
-                if not aspect_path.exists():
-                    write_raster(aspect_path, aspect, profile, nodata)
-                    logger.info("Saved aspect raster: %s", aspect_path)
-                outputs["aspect"] = aspect_path
-
-        if config["raster"].get("curvature"):
-            curvature_path = rasters_dir / "curvature" / f"{tile_id}.tif"
-            if not curvature_path.exists():
-                curvature = compute_curvature(elev, res_x, res_y)
-                write_raster(curvature_path, curvature, profile, nodata)
-                logger.info("Saved curvature raster: %s", curvature_path)
-            outputs["curvature"] = curvature_path
-
-        if config["raster"].get("flow_accumulation"):
-            flow_path = rasters_dir / "flowacc" / f"{tile_id}.tif"
-            if not flow_path.exists():
-                flowacc = ensure_flowacc()
-                write_raster(flow_path, flowacc, profile, nodata)
-                logger.info("Saved flow accumulation raster: %s", flow_path)
-            outputs["flowacc"] = flow_path
-
-        if config["raster"].get("distance_to_drainage"):
-            dist_path = rasters_dir / "drain_dist" / f"{tile_id}.tif"
-            if not dist_path.exists():
-                flowacc = ensure_flowacc()
-                flowacc_q = float(config["raster"].get("drainage_flowacc_quantile", 0.9))
-                min_flowacc_cfg = config["raster"].get("drainage_min_flowacc")
-                min_flowacc = (
-                    float(min_flowacc_cfg) if min_flowacc_cfg is not None else None
-                )
-                drain_dist = compute_distance_to_drainage(
-                    flowacc, res_x, res_y, flowacc_q, min_flowacc, logger
-                )
-                write_raster(dist_path, drain_dist, profile, nodata)
-                logger.info("Saved distance-to-drainage raster: %s", dist_path)
-            outputs["drain_dist"] = dist_path
+        if config["raster"].get("slope"):
+            slope = compute_slope(elev, res_x, res_y)
+            slope_path = rasters_dir / "slope" / f"{tile_id}.tif"
+            if not slope_path.exists():
+                write_raster(slope_path, slope, profile, nodata)
+                logger.info("Saved slope raster: %s", slope_path)
+            outputs["slope"] = slope_path
 
         for scale in config["raster"].get("tpi_scales", []):
             scale = float(scale)
@@ -546,9 +368,7 @@ def sample_points_by_tile(
             for idx in idxs:
                 point = points.at[idx, "geometry"]
                 for name, src in datasets.items():
-                    stats = raster_stats_for_point(
-                        src, point, buffer_radius, circular=(name == "aspect")
-                    )
+                    stats = raster_stats_for_point(src, point, buffer_radius)
                     for stat_name, stat_val in stats.items():
                         results.at[idx, f"{name}_{stat_name}"] = stat_val
 

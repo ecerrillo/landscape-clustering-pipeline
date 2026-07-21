@@ -108,13 +108,6 @@ def validate_config(config: Dict[str, Any]) -> None:
     tpi_scales = raster_cfg.get("tpi_scales", [])
     if not isinstance(tpi_scales, list) or any(s <= 0 for s in tpi_scales):
         raise ValueError("raster.tpi_scales must be a list of positive values")
-    if raster_cfg.get("distance_to_drainage", False):
-        flowacc_q = float(raster_cfg.get("drainage_flowacc_quantile", 0.9))
-        if flowacc_q <= 0.0 or flowacc_q >= 1.0:
-            raise ValueError("raster.drainage_flowacc_quantile must be in (0, 1).")
-        min_flowacc = raster_cfg.get("drainage_min_flowacc")
-        if min_flowacc is not None and float(min_flowacc) <= 0:
-            raise ValueError("raster.drainage_min_flowacc must be > 0 when provided.")
 
     if config["sampling"].get("buffer_radius", 0) <= 0:
         raise ValueError("sampling.buffer_radius must be > 0")
@@ -332,14 +325,6 @@ def ensure_output_dirs(config: Dict[str, Any]) -> None:
     (rasters_dir / "dem_resampled").mkdir(parents=True, exist_ok=True)
     if config["raster"].get("slope"):
         (rasters_dir / "slope").mkdir(parents=True, exist_ok=True)
-    if config["raster"].get("aspect"):
-        (rasters_dir / "aspect").mkdir(parents=True, exist_ok=True)
-    if config["raster"].get("curvature"):
-        (rasters_dir / "curvature").mkdir(parents=True, exist_ok=True)
-    if config["raster"].get("flow_accumulation"):
-        (rasters_dir / "flowacc").mkdir(parents=True, exist_ok=True)
-    if config["raster"].get("distance_to_drainage"):
-        (rasters_dir / "drain_dist").mkdir(parents=True, exist_ok=True)
     for scale in config["raster"].get("tpi_scales", []):
         (rasters_dir / f"tpi{scale_to_tag(scale)}").mkdir(parents=True, exist_ok=True)
 

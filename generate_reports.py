@@ -270,9 +270,6 @@ def save_cluster_summaries(
         for col in [
             "elev_mean",
             "slope_mean",
-            "curvature_mean",
-            "flowacc_mean",
-            "drain_dist_mean",
         ]:
             if col in subset.columns:
                 summary[col] = subset.groupby(group_field)[col].mean()
@@ -402,10 +399,8 @@ def plot_histograms(
     """Generate histograms of key variables."""
     fig_dir = Path(config["paths"]["output_dir"]) / "figures" / "histograms"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    variables = ["elev_mean", "slope_mean", "curvature_mean"]
+    variables = ["elev_mean", "slope_mean"]
     variables.extend([c for c in df.columns if c.startswith("tpi") and c.endswith("_mean")])
-    variables.extend([c for c in df.columns if c.startswith("flowacc") and c.endswith("_mean")])
-    variables.extend([c for c in df.columns if c.startswith("drain_dist") and c.endswith("_mean")])
 
     for var in variables:
         if var not in df.columns:

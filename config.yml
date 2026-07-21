@@ -19,12 +19,6 @@ raster:
   target_resolution: 2.0
   tpi_scales: [20.0]
   slope: true
-  aspect: true
-  curvature: true
-  flow_accumulation: true
-  distance_to_drainage: true
-  drainage_flowacc_quantile: 0.9
-  drainage_min_flowacc: null
 
 sampling:
   buffer_radius: 100.0
