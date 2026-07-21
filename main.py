@@ -27,6 +27,7 @@ import yaml
 from pyproj import CRS
 
 from generate_reports import (
+    compute_cluster_separation_stats,
     plot_boxplots,
     plot_cluster_prob_histogram,
     plot_histograms,
@@ -492,6 +493,12 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
         logger.info("Saved KDE diagnostics: %s", density_path)
         output_paths["kde_diagnostics"] = density_path
 
+    separation_df = compute_cluster_separation_stats(points, config, run_id, logger)
+    if separation_df is not None:
+        output_paths["cluster_separation"] = (
+            Path(config["paths"]["output_dir"]) / "tables" / f"cluster_separation_{run_id}.csv"
+        )
+
     if config["plots"].get("make_histograms"):
         plot_histograms(points, config, run_id, logger)
     if config["plots"].get("make_cluster_prob_hist"):
@@ -516,6 +523,9 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
         "noise_ratio": float(n_noise / len(cluster_labels)) if len(cluster_labels) else 0.0,
         "cluster_prob_mean": float(np.mean(cluster_prob)) if len(cluster_prob) else 0.0,
         "cluster_metrics": cluster_metrics,
+        "cluster_separation": (
+            separation_df.to_dict("records") if separation_df is not None else []
+        ),
         "point_filter": filter_stats,
         "taphonomy": taph_stats,
         "figure_count": len(figure_files),

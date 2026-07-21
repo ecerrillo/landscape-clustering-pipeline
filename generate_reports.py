@@ -20,6 +20,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.stats import kruskal
 from shapely.geometry import MultiPoint
 
 try:
@@ -298,6 +299,73 @@ def save_cluster_summaries(
     return summary_path
 
 
+def compute_cluster_separation_stats(
+    gdf: gpd.GeoDataFrame,
+    config: Dict[str, Any],
+    run_id: str,
+    logger: logging.Logger,
+    variables: Optional[List[str]] = None,
+) -> Optional[pd.DataFrame]:
+    """
+    Test how strongly cluster membership separates terrain variables.
+
+    For each variable, runs a Kruskal-Wallis H test across clusters (noise
+    points, cluster == -1, are excluded) and reports the epsilon-squared
+    effect size, computed as eps2 = H / (n - 1) (Tomczak & Tomczak 2014),
+    where n is the number of clustered points actually used in the test.
+
+    A large eps2 means clusters occupy distinct ranges of the variable; it is
+    reported as an observational association only. The result can be shaped by
+    survey organisation, by the terrain-cost metric used for clustering (which
+    itself embeds elevation), and by genuine locational selectivity, and the
+    test alone cannot attribute the separation to any one of these.
+    """
+    if "cluster" not in gdf.columns:
+        return None
+    if variables is None:
+        variables = [c for c in gdf.columns if c in ("elev_mean", "slope_mean") or c.startswith("tpi")]
+    subset = gdf[gdf["cluster"] != -1]
+    if subset.empty:
+        return None
+
+    rows: List[Dict[str, Any]] = []
+    for var in variables:
+        if var not in subset.columns:
+            continue
+        values = pd.to_numeric(subset[var], errors="coerce")
+        valid = values.notna()
+        groups = [
+            g.to_numpy()
+            for _, g in values[valid].groupby(subset.loc[valid, "cluster"])
+            if len(g) >= 2
+        ]
+        n = int(sum(len(g) for g in groups))
+        k = len(groups)
+        if k < 2 or n <= k:
+            continue
+        h_stat, p_value = kruskal(*groups)
+        rows.append(
+            {
+                "variable": var,
+                "n_points": n,
+                "n_clusters": k,
+                "kruskal_h": float(h_stat),
+                "p_value": float(p_value),
+                "epsilon_squared": float(h_stat) / (n - 1),
+            }
+        )
+
+    if not rows:
+        return None
+    stats_df = pd.DataFrame(rows)
+    output_dir = Path(config["paths"]["output_dir"]) / "tables"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stats_path = output_dir / f"cluster_separation_{run_id}.csv"
+    stats_df.to_csv(stats_path, index=False)
+    logger.info("Saved cluster separation statistics: %s", stats_path)
+    return stats_df
+
+
 def write_run_report(
     config: Dict[str, Any],
     run_id: str,
@@ -372,6 +440,23 @@ def write_run_report(
             f"- KDE rows: {spatial_diag.get('kde_rows', 0)}",
         ]
     )
+
+    separation = summary.get("cluster_separation")
+    lines.extend(["", "## Cluster separation on terrain variables (Kruskal-Wallis)"])
+    if separation:
+        lines.append(
+            "Noise points excluded; epsilon-squared = H / (n - 1). Association is "
+            "observational: it may reflect survey organisation and the terrain-cost "
+            "clustering metric as well as locational selectivity."
+        )
+        for row in separation:
+            lines.append(
+                f"- {row['variable']}: H = {row['kruskal_h']:.1f}, "
+                f"p = {row['p_value']:.3g}, eps2 = {row['epsilon_squared']:.3f} "
+                f"(n = {row['n_points']}, k = {row['n_clusters']})"
+            )
+    else:
+        lines.append("- Not computed (no clusters or variables available).")
 
     taph_stats = summary.get("taphonomy", {})
     lines.extend(["", "## Taphonomic context (terrain-intrinsic)"])
