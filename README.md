@@ -38,6 +38,22 @@ Outputs are written to `outputs/`: an enriched GeoPackage/CSV/Parquet,
 per-cluster summary and spatial diagnostic tables, figures, and a markdown
 run report under `outputs/reports/`.
 
+### Sensitivity analysis
+
+After `main.py` has produced `outputs/points_enriched.gpkg`, check how robust
+its clustering is to positional error, cost-model settings and HDBSCAN
+parameters:
+
+```bash
+python sensitivity_analysis.py --config config.yml
+```
+
+This reuses `hdbscan_clustering.py` directly (no reimplementation), so it can
+never drift from the pipeline it is checking. It writes a markdown report to
+`outputs/reports/sensitivity_report.md` and three tables to `outputs/tables/`
+— no figures. Pass `--quick` for a fast smoke test with reduced replicate and
+grid counts.
+
 ## Using your own data
 
 Replace the contents of `data/` and edit `config.yml` (`paths.dem_index`,
@@ -52,6 +68,7 @@ should be scaled back up for a full-size dataset).
 
 - `main.py` — entry point (`python main.py --config config.yml`)
 - `raster_processing.py`, `hdbscan_clustering.py`, `generate_reports.py` — pipeline modules
+- `sensitivity_analysis.py` — post-hoc robustness check (`python sensitivity_analysis.py --config config.yml`)
 - `data/dem/sample_tile.tif` — sample DEM (2 m resolution, ~1 km²)
 - `data/index.csv` — DEM tile index (one row, points at the sample tile)
 - `data/points.gpkg` — 225-point sample (subset of the full project dataset falling within the sample tile)
