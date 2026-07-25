@@ -4,8 +4,8 @@ Raster processing for the landscape analysis pipeline.
 
 Covers DEM tile reading, reprojection/resampling, geomorphometric derivatives
 (slope, TPI), buffer-based sampling of those rasters at artefact locations, the seamless
-elevation mosaic used by clustering, and the terrain-intrinsic taphonomic
-process-zone classification.
+elevation mosaic used by clustering, and the terrain-intrinsic
+terrain-position process-zone classification.
 """
 
 from __future__ import annotations
@@ -415,7 +415,7 @@ def compute_process_zone_raster(
     logger: logging.Logger,
 ) -> Path:
     """
-    Compute a spatially coherent taphonomic process-zone raster from the DEM mosaic.
+    Compute a spatially coherent terrain-position process-zone raster from the DEM mosaic.
 
     Instead of classifying artefact locations independently from noisy
     exact-point raster values (which produces salt-and-pepper class patterns
@@ -432,15 +432,15 @@ def compute_process_zone_raster(
     - mid positions   (|z| < t):   steep -> transit; gentle -> stable
     - lower positions (z <= -t):   steep -> transit; gentle -> accumulation
 
-    The raster is written to rasters/taphonomy/process_zones.tif (uint8 codes
-    per PROCESS_ZONE_CODES) so the zoning can be inspected directly in a GIS
-    against hillshade and field knowledge.
+    The raster is written to rasters/terrain_position/process_zones.tif (uint8
+    codes per PROCESS_ZONE_CODES) so the zoning can be inspected directly in a
+    GIS against hillshade and field knowledge.
     """
-    taph_cfg = config.get("taphonomy", {})
-    theta = float(taph_cfg.get("critical_slope_deg", 10.0))
-    slope_smooth_radius = float(taph_cfg.get("slope_smooth_radius_m", 15.0))
-    coarse_tpi_radius = float(taph_cfg.get("coarse_tpi_radius_m", 100.0))
-    sd_threshold = float(taph_cfg.get("tpi_sd_threshold", 0.5))
+    terrain_cfg = config.get("terrain_position", {})
+    theta = float(terrain_cfg.get("critical_slope_deg", 10.0))
+    slope_smooth_radius = float(terrain_cfg.get("slope_smooth_radius_m", 15.0))
+    coarse_tpi_radius = float(terrain_cfg.get("coarse_tpi_radius_m", 100.0))
+    sd_threshold = float(terrain_cfg.get("tpi_sd_threshold", 0.5))
 
     with rasterio.open(elevation_mosaic_path) as src:
         elev = src.read(1).astype("float64")
@@ -477,7 +477,7 @@ def compute_process_zone_raster(
     zones[lower & steep] = 3      # transit
     zones[lower & ~steep] = 4     # accumulation
 
-    out_dir = Path(config["paths"]["rasters_dir"]) / "taphonomy"
+    out_dir = Path(config["paths"]["rasters_dir"]) / "terrain_position"
     out_dir.mkdir(parents=True, exist_ok=True)
     zones_path = out_dir / "process_zones.tif"
     zone_profile = profile.copy()
@@ -504,25 +504,25 @@ def compute_process_zone_raster(
     return zones_path
 
 
-def classify_taphonomic_context(
+def classify_terrain_position(
     points: gpd.GeoDataFrame,
     config: Dict[str, Any],
     logger: logging.Logger,
     elevation_mosaic_path: Optional[Path],
 ) -> Tuple[gpd.GeoDataFrame, Dict[str, int]]:
     """
-    Assign each point the taphonomic process zone it falls in.
+    Assign each point the terrain-position process zone it falls in.
 
     Zones come from a smoothed, spatially coherent terrain classification (see
     compute_process_zone_raster); the classification of a point therefore
     depends only on the landform it sits on, never on other recorded artefacts
     or on single-pixel raster noise.
     """
-    taph_cfg = config.get("taphonomy", {})
-    if not taph_cfg or not taph_cfg.get("enable", False):
+    terrain_cfg = config.get("terrain_position", {})
+    if not terrain_cfg or not terrain_cfg.get("enable", False):
         return points, {}
     if elevation_mosaic_path is None:
-        logger.warning("Taphonomic classification skipped; elevation mosaic unavailable.")
+        logger.warning("Terrain-position classification skipped; elevation mosaic unavailable.")
         return points, {}
 
     zones_path = compute_process_zone_raster(elevation_mosaic_path, config, logger)
@@ -531,10 +531,10 @@ def classify_taphonomic_context(
         coords = [(geom.x, geom.y) for geom in points.geometry]
         sampled = np.array([v[0] for v in src.sample(coords)], dtype="int32")
 
-    context = np.array([PROCESS_ZONE_CODES.get(int(c), "undetermined") for c in sampled], dtype=object)
+    position = np.array([PROCESS_ZONE_CODES.get(int(c), "undetermined") for c in sampled], dtype=object)
     points = points.copy()
-    points["taph_context"] = context
+    points["terrain_position"] = position
 
-    counts = {str(k): int(v) for k, v in pd.Series(context).value_counts().items()}
-    logger.info("Taphonomic context assigned from process zones: %s", counts)
+    counts = {str(k): int(v) for k, v in pd.Series(position).value_counts().items()}
+    logger.info("Terrain position assigned from process zones: %s", counts)
     return points, counts

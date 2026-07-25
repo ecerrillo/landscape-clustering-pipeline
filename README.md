@@ -13,11 +13,11 @@ rasters, then classifies the terrain into erosion–transport–deposition zones
 Artefacts are clustered with
 HDBSCAN over a terrain-cost distance matrix that models gravity-driven,
 downslope-biased displacement rather than plain planimetric proximity, so
-clusters reflect plausible taphonomic pathways instead of arbitrary spatial
-grouping. Resulting clusters are characterised with spatial diagnostics
-(Clark–Evans, Ripley's K, kernel density) and cross-tabulated against
-landscape position to distinguish primary occupation signal from
-downslope-redistributed or taphonomically degraded material.
+clusters reflect plausible terrain-position pathways instead of arbitrary
+spatial grouping. Resulting clusters are characterised with spatial
+diagnostics (nearest-neighbour distances, kernel density) and cross-tabulated
+against landscape position to distinguish primary occupation signal from
+downslope-redistributed or terrain-position-affected material.
 
 ## Quickstart
 
@@ -60,7 +60,7 @@ Replace the contents of `data/` and edit `config.yml` (`paths.dem_index`,
 `paths.points_gpkg`, `crs.analysis_crs`) — or better, start from
 `config.example.yml` in the parent project, which documents every option and
 which ones need recalibrating per site (in particular
-`taphonomy.critical_slope_deg`, and `clustering.min_cluster_size`/
+`terrain_position.critical_slope_deg`, and `clustering.min_cluster_size`/
 `min_samples`, which were scaled down here for this 225-point sample and
 should be scaled back up for a full-size dataset).
 

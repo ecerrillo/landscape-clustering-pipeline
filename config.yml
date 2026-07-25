@@ -5,88 +5,115 @@
 # sample; see config.example.yml in the parent project for full documentation
 # of every option.
 
+# Input/output locations. Relative paths are resolved from the directory
+# main.py is run from (this repo's root when invoked as `python main.py`).
 paths:
-  dem_index: "data/index.csv"
-  points_gpkg: "data/points.gpkg"
-  points_layer: null
-  output_dir: "outputs"
-  rasters_dir: "rasters"
+  dem_index: "data/index.csv"        # CSV listing DEM tiles to process (path + metadata per tile)
+  points_gpkg: "data/points.gpkg"    # Archaeological point layer to enrich and cluster
+  points_layer: null                 # GeoPackage layer name; null reads the (single) default layer
+  output_dir: "outputs"              # Root for tables, figures and the run report
+  rasters_dir: "rasters"             # Root for derived rasters (resampled DEM, slope, TPI, terrain position)
 
 crs:
+  # Projected CRS used for every distance/area computation in the pipeline
+  # (buffer sampling, path-cost matrix, cluster diameters, etc.). Points and
+  # rasters are reprojected into this CRS as needed; metres throughout.
   analysis_crs: "EPSG:25829"
 
+# DEM-derivative rasters computed once per tile before point sampling.
 raster:
-  target_resolution: 2.0
-  tpi_scales: [20.0]
-  slope: true
+  target_resolution: 2.0   # Metres/pixel the DEM is resampled to (bilinear) before deriving slope/TPI
+  tpi_scales: [20.0]        # Circular-window radii (m) for Topographic Position Index; one output raster per scale
+  slope: true                # Whether to compute and save a slope-in-degrees raster
 
+# Buffer-based extraction of raster values at each point, to smooth over
+# positional uncertainty in the recorded point coordinates.
 sampling:
-  buffer_radius: 100.0
+  buffer_radius: 100.0   # Radius (m) around each point averaged when sampling slope/TPI rasters (mean statistic only)
 
+# Optional exclusion of points by a categorical attribute before any
+# clustering or diagnostics run (e.g. dropping non-prehistoric material so
+# clustering targets only the intended assemblage).
 point_filter:
   enable: true
-  field: "Material"
-  exclude_values:
-    - "Cerámica a torno"
-    - "Constructivo"
-  case_sensitive: false
-  strip_whitespace: true
-  normalize_accents: true
+  field: "material"                # Column in points_gpkg holding the category to filter on
+  exclude_values:                  # Rows whose (normalised) field value matches any of these are dropped
+    - "Cerámica a torno"           # wheel-thrown pottery (historic, not prehistoric)
+    - "Constructivo"               # building material
+  case_sensitive: false            # Compare values case-insensitively (casefold)
+  strip_whitespace: true           # Trim leading/trailing whitespace before comparing
+  normalize_accents: true          # Strip diacritics before comparing (so "Cerámica" matches "Ceramica")
 
+# HDBSCAN clustering over a terrain-aware directional distance matrix.
 clustering:
   # Scaled down for a 225-point demo sample (main project uses 40/20 on ~3600 points).
-  min_cluster_size: 15
-  min_samples: 8
+  min_cluster_size: 15   # HDBSCAN min_cluster_size: smallest point group treated as a genuine cluster
+  min_samples: 8          # HDBSCAN min_samples: local density required for a point to be a core point (higher = more conservative, more noise)
   directional_path_cost:
-    cutoff_radius_m: 300.0
-    n_samples: 20
-    uphill_penalty: 6.0
-    downhill_penalty: 0.5
-    unreachable_distance_factor: 10.0
+    # Distance matrix: for each point pair within cutoff_radius_m, the DEM
+    # elevation profile between them is sampled and integrated into an
+    # asymmetric cost that penalises uphill travel more than downhill, since
+    # material displaces preferentially downslope. The cheaper direction is
+    # kept, symmetrising the matrix for HDBSCAN's precomputed metric.
+    cutoff_radius_m: 300.0            # Max planimetric distance (m) between two points to even consider a path cost; farther pairs are "unreachable"
+    n_samples: 20                      # Number of elevation samples taken along the straight line between two points (profile resolution)
+    uphill_penalty: 6.0                 # Multiplier applied to slope when travelling uphill (cost = dx * (1 + uphill_penalty * slope))
+    downhill_penalty: 0.5               # Multiplier applied to slope when travelling downhill (kept low: downslope movement is "cheap")
+    unreachable_distance_factor: 10.0   # Distance assigned to out-of-cutoff pairs, as a multiple of cutoff_radius_m (keeps them from ever being joined)
   postprocess:
+    # Splits any resulting cluster whose planimetric diameter exceeds the
+    # threshold, since the path-cost metric can chain distant points through
+    # a cheap downslope corridor even when they are far apart on the ground.
     enforce_max_cluster_diameter: true
-    max_cluster_diameter_m: 700.0
-    min_subcluster_size: 15
+    max_cluster_diameter_m: 700.0    # Diameter threshold (m); clusters wider than this are split (complete-linkage) at this distance
+    min_subcluster_size: 15           # Sub-clusters smaller than this after splitting are reassigned to noise
 
-taphonomy:
+# Terrain classification into erosion-transport-deposition process zones
+# (source / transit / stable / accumulation), used to describe the landform
+# each artefact sits on. Independent of the clustering step above (only
+# shares the same DEM mosaic).
+terrain_position:
   enable: true
-  critical_slope_deg: 10.0
-  slope_smooth_radius_m: 15.0
-  coarse_tpi_radius_m: 100.0
-  tpi_sd_threshold: 0.5
+  critical_slope_deg: 10.0        # Slope threshold (degrees) separating "steep" from "gentle" terrain
+  slope_smooth_radius_m: 15.0     # Focal-mean radius (m) used to smooth slope before classification (removes pixel noise)
+  coarse_tpi_radius_m: 100.0      # Radius (m) of the coarse TPI used to detect upper/mid/lower landscape position
+  tpi_sd_threshold: 0.5           # TPI z-score threshold (in standard deviations) separating upper/lower from mid positions
 
+# Post-clustering spatial diagnostics computed per cluster and written to
+# outputs/tables/.
 cluster_diagnostics:
   enable: true
   nn:
-    compute: true
-    max_distance: 200.0
-  ripley:
-    compute: true
-    radii: [10.0, 25.0, 50.0, 100.0, 250.0, 500.0]
+    compute: true          # Compute nearest-neighbour distance statistics (mean/median/std/CV) per cluster
+    max_distance: 200.0     # Discard NN distances above this (m) before summarising, to exclude near-isolated points
   density:
-    compute: true
-    bandwidths: [25.0, 50.0]
+    compute: true               # Compute Gaussian kernel density estimates per cluster
+    bandwidths: [25.0, 50.0]     # KDE bandwidths (m) to evaluate; one set of density stats per bandwidth
 
+# Field used to characterise cluster composition by material/typology in the
+# cluster summary table (cross-tabulated against cluster and terrain_position).
 features_sub:
-  material_layer_field: "layer"
+  material_layer_field: "layer"   # Column in points_gpkg holding the material/typology label
 
+# Which figures to generate under outputs/figures/ (all SVG).
 plots:
-  make_histograms: true
-  make_cluster_prob_hist: true
-  make_boxplots: true
-  make_pairplot: true
+  make_histograms: true          # Per-variable histograms of raster-derived features
+  make_cluster_prob_hist: true    # Histogram of HDBSCAN membership probabilities
+  make_boxplots: true             # Per-variable boxplots grouped by material layer and by cluster
+  make_pairplot: true             # Pairwise scatter/density matrix of raster-derived features
 
+# What to write under outputs/.
 output:
-  save_gpkg: true
-  gpkg_path: "outputs/points_enriched.gpkg"
-  gpkg_layer: "points_enriched"
-  save_tables_csv: true
-  save_tables_parquet: true
+  save_gpkg: true                              # Write the enriched point layer (all derived columns) as a GeoPackage
+  gpkg_path: "outputs/points_enriched.gpkg"     # Destination path for that GeoPackage
+  gpkg_layer: "points_enriched"                 # Layer name inside the GeoPackage
+  save_tables_csv: true                          # Also write every table as CSV
+  save_tables_parquet: true                      # Also write every table as Parquet (requires pyarrow or fastparquet; skipped with a warning if neither is installed)
 
 logging:
-  level: "INFO"
-  log_to_file: true
-  log_file: "outputs/logs/run.log"
+  level: "INFO"                     # Root log level (DEBUG/INFO/WARNING/ERROR)
+  log_to_file: true                  # Additionally write logs to log_file (console logging is always on)
+  log_file: "outputs/logs/run.log"   # Log file path, used when log_to_file is true
 
 random:
-  seed: 42
+  seed: 42   # Seed for Python's random and NumPy's global RNG, for reproducible runs

@@ -5,7 +5,7 @@ Landscape analysis pipeline for archaeological point data.
 This script reads a DEM index and archaeological material points, derives
 topographic metrics at micro-topographic scales, summarizes raster values in a
 buffer around each point to account for positional accuracy, and performs
-hierarchical clustering to explore archaeological and taphonomic structure.
+hierarchical clustering to explore archaeological structure and terrain position.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from raster_processing import (
     _GDAL_AVAILABLE,
     _compute_derivatives_for_tile_worker,
     build_dem_mosaic_vrt,
-    classify_taphonomic_context,
+    classify_terrain_position,
     compute_derivatives_for_tile,
     read_dem_index,
     sample_points_by_tile,
@@ -151,9 +151,6 @@ def validate_config(config: Dict[str, Any]) -> None:
 
     diag_cfg = config["cluster_diagnostics"]
     if diag_cfg.get("enable", False):
-        ripley_radii = diag_cfg.get("ripley", {}).get("radii", [])
-        if any(r <= 0 for r in ripley_radii):
-            raise ValueError("cluster_diagnostics.ripley.radii must be positive.")
         bandwidths = diag_cfg.get("density", {}).get("bandwidths", [])
         if any(b <= 0 for b in bandwidths):
             raise ValueError("cluster_diagnostics.density.bandwidths must be positive.")
@@ -170,20 +167,20 @@ def validate_config(config: Dict[str, Any]) -> None:
             if not isinstance(exclude_values, list) or not exclude_values:
                 raise ValueError("point_filter.exclude_values must be a non-empty list.")
 
-    taph_cfg = config.get("taphonomy", {})
-    if taph_cfg:
-        if not isinstance(taph_cfg, dict):
-            raise ValueError("taphonomy must be a mapping.")
-        if taph_cfg.get("enable", False):
-            if float(taph_cfg.get("critical_slope_deg", 10.0)) <= 0:
-                raise ValueError("taphonomy.critical_slope_deg must be > 0.")
+    terrain_cfg = config.get("terrain_position", {})
+    if terrain_cfg:
+        if not isinstance(terrain_cfg, dict):
+            raise ValueError("terrain_position must be a mapping.")
+        if terrain_cfg.get("enable", False):
+            if float(terrain_cfg.get("critical_slope_deg", 10.0)) <= 0:
+                raise ValueError("terrain_position.critical_slope_deg must be > 0.")
             for key in ["slope_smooth_radius_m", "coarse_tpi_radius_m", "tpi_sd_threshold"]:
                 default = {"slope_smooth_radius_m": 15.0, "coarse_tpi_radius_m": 100.0, "tpi_sd_threshold": 0.5}[key]
-                if float(taph_cfg.get(key, default)) <= 0:
-                    raise ValueError(f"taphonomy.{key} must be > 0.")
+                if float(terrain_cfg.get(key, default)) <= 0:
+                    raise ValueError(f"terrain_position.{key} must be > 0.")
             if not _GDAL_AVAILABLE:
                 raise ImportError(
-                    "taphonomy.enable requires GDAL Python bindings (osgeo.gdal) "
+                    "terrain_position.enable requires GDAL Python bindings (osgeo.gdal) "
                     "to build the elevation mosaic, but they are not installed."
                 )
 
@@ -426,10 +423,10 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
     points = sample_points_by_tile(points, tile_rasters, config, logger)
 
     # The elevation mosaic backs both the directional path-cost clustering
-    # metric (always active) and the taphonomic process-zone raster.
+    # metric (always active) and the terrain-position process-zone raster.
     elevation_mosaic_path = build_dem_mosaic_vrt(Path(config["paths"]["rasters_dir"]), logger)
 
-    points, taph_stats = classify_taphonomic_context(
+    points, terrain_stats = classify_terrain_position(
         points, config, logger, elevation_mosaic_path
     )
 
@@ -459,7 +456,6 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
     output_paths.update(save_tables(table_df, config, run_id, logger))
     diagnostics = run_cluster_diagnostics(points, config, logger)
     cluster_diag_df = diagnostics["cluster"] if diagnostics is not None else None
-    ripley_df = diagnostics["ripley"] if diagnostics is not None else None
     density_df = diagnostics["density"] if diagnostics is not None else None
     summary_path = save_cluster_summaries(
         points, config, run_id, logger, diagnostics=cluster_diag_df
@@ -474,15 +470,6 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
         cluster_diag_df.to_csv(diag_path, index=False)
         logger.info("Saved cluster diagnostics: %s", diag_path)
         output_paths["cluster_diagnostics"] = diag_path
-    if ripley_df is not None and not ripley_df.empty:
-        ripley_path = (
-            Path(config["paths"]["output_dir"])
-            / "tables"
-            / f"ripley_k_{run_id}.csv"
-        )
-        ripley_df.to_csv(ripley_path, index=False)
-        logger.info("Saved Ripley's K diagnostics: %s", ripley_path)
-        output_paths["ripley_k"] = ripley_path
     if density_df is not None and not density_df.empty:
         density_path = (
             Path(config["paths"]["output_dir"])
@@ -527,16 +514,10 @@ def run_pipeline(config: Dict[str, Any], logger: logging.Logger) -> None:
             separation_df.to_dict("records") if separation_df is not None else []
         ),
         "point_filter": filter_stats,
-        "taphonomy": taph_stats,
+        "terrain_position": terrain_stats,
         "figure_count": len(figure_files),
         "spatial_diagnostics": {
             "nn_enabled": bool(config.get("cluster_diagnostics", {}).get("nn", {}).get("compute", False)),
-            "ripley_enabled": bool(config.get("cluster_diagnostics", {}).get("ripley", {}).get("compute", False)),
-            "ripley_radii": [
-                float(r)
-                for r in config.get("cluster_diagnostics", {}).get("ripley", {}).get("radii", [])
-            ],
-            "ripley_rows": int(len(ripley_df)) if ripley_df is not None else 0,
             "kde_enabled": bool(config.get("cluster_diagnostics", {}).get("density", {}).get("compute", False)),
             "kde_bandwidths": [
                 float(b)

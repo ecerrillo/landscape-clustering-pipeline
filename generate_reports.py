@@ -2,9 +2,9 @@
 """
 Output generation for the landscape analysis pipeline.
 
-Covers post-clustering spatial diagnostics (nearest-neighbour, Ripley's K,
-KDE), writing the enriched GeoPackage/CSV/Parquet tables and cluster summary,
-the markdown run report, and all figures (histograms, boxplots, pairplot).
+Covers post-clustering spatial diagnostics (nearest-neighbour, KDE), writing
+the enriched GeoPackage/CSV/Parquet tables and cluster summary, the markdown
+run report, and all figures (histograms, boxplots, pairplot).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def run_cluster_diagnostics(
     config: Dict[str, Any],
     logger: logging.Logger,
 ) -> Optional[Dict[str, pd.DataFrame]]:
-    """Compute cluster diagnostics: NN analysis, Ripley's K and KDE summaries."""
+    """Compute cluster diagnostics: NN analysis and KDE summaries."""
     diag_cfg = config.get("cluster_diagnostics", {})
     if not diag_cfg.get("enable", False):
         return None
@@ -49,15 +49,11 @@ def run_cluster_diagnostics(
     nn_cfg = diag_cfg.get("nn", {})
     compute_nn = nn_cfg.get("compute", False)
     max_dist = nn_cfg.get("max_distance")
-    rip_cfg = diag_cfg.get("ripley", {})
-    compute_ripley = rip_cfg.get("compute", False)
-    radii = sorted({float(r) for r in rip_cfg.get("radii", []) if float(r) > 0})
     den_cfg = diag_cfg.get("density", {})
     compute_density = den_cfg.get("compute", False)
     bandwidths = sorted({float(b) for b in den_cfg.get("bandwidths", []) if float(b) > 0})
 
     cluster_rows: List[Dict[str, Any]] = []
-    ripley_rows: List[Dict[str, Any]] = []
     density_rows: List[Dict[str, Any]] = []
     for cluster_id, subset in points.groupby("cluster"):
         if cluster_id == -1:
@@ -82,9 +78,6 @@ def run_cluster_diagnostics(
         nn_median = None
         nn_std = None
         nn_cv = None
-        nn_expected_csr = None
-        nn_clark_evans_r = None
-        nn_zscore = None
         if compute_nn:
             nn_candidates = np.where(offdiag_mask, dist_matrix, np.inf)
             arr = np.min(nn_candidates, axis=1)
@@ -96,15 +89,6 @@ def run_cluster_diagnostics(
                 nn_median = float(np.median(arr))
                 nn_std = float(arr.std())
                 nn_cv = float(arr.std() / nn_mean) if nn_mean > 0 else None
-                if area_m2 > 0:
-                    intensity = n_points / area_m2
-                    if intensity > 0:
-                        nn_expected_csr = float(0.5 / np.sqrt(intensity))
-                        if nn_expected_csr > 0:
-                            nn_clark_evans_r = float(nn_mean / nn_expected_csr)
-                        se = float(0.26136 / np.sqrt(n_points * intensity))
-                        if se > 0:
-                            nn_zscore = float((nn_mean - nn_expected_csr) / se)
 
         cluster_rows.append(
             {
@@ -116,30 +100,8 @@ def run_cluster_diagnostics(
                 "nn_median": nn_median,
                 "nn_std": nn_std,
                 "nn_cv": nn_cv,
-                "nn_expected_csr": nn_expected_csr,
-                "nn_clark_evans_r": nn_clark_evans_r,
-                "nn_zscore": nn_zscore,
             }
         )
-
-        if compute_ripley and radii and area_m2 > 0:
-            for radius in radii:
-                pair_count = float(np.sum((dist_matrix <= radius) & offdiag_mask))
-                k_obs = float(area_m2 * pair_count / (n_points * (n_points - 1)))
-                k_theory = float(np.pi * radius * radius)
-                l_minus_r = float(np.sqrt(k_obs / np.pi) - radius) if k_obs >= 0 else np.nan
-                ripley_rows.append(
-                    {
-                        "cluster": int(cluster_id),
-                        "n_points": n_points,
-                        "area_m2": area_m2,
-                        "radius_m": float(radius),
-                        "pair_count": pair_count,
-                        "k_obs": k_obs,
-                        "k_theory": k_theory,
-                        "l_minus_r": l_minus_r,
-                    }
-                )
 
         if compute_density and bandwidths:
             for bandwidth in bandwidths:
@@ -163,7 +125,6 @@ def run_cluster_diagnostics(
                 )
 
     cluster_df = pd.DataFrame(cluster_rows)
-    ripley_df = pd.DataFrame(ripley_rows)
     density_df = pd.DataFrame(density_rows)
 
     if cluster_df.empty:
@@ -171,14 +132,12 @@ def run_cluster_diagnostics(
         return None
 
     logger.info(
-        "Computed diagnostics: clusters=%d ripley_rows=%d density_rows=%d",
+        "Computed diagnostics: clusters=%d density_rows=%d",
         len(cluster_df),
-        len(ripley_df),
         len(density_df),
     )
     return {
         "cluster": cluster_df,
-        "ripley": ripley_df,
         "density": density_df,
     }
 
@@ -281,10 +240,10 @@ def save_cluster_summaries(
             dist = pd.crosstab(subset[group_field], subset[material_field], normalize="index")
             dist.columns = [f"material_{c}" for c in dist.columns]
             summary = summary.join(dist)
-        if "taph_context" in subset.columns:
-            taph = pd.crosstab(subset[group_field], subset["taph_context"], normalize="index")
-            taph.columns = [f"taph_{c}" for c in taph.columns]
-            summary = summary.join(taph)
+        if "terrain_position" in subset.columns:
+            terrain = pd.crosstab(subset[group_field], subset["terrain_position"], normalize="index")
+            terrain.columns = [f"terrain_position_{c}" for c in terrain.columns]
+            summary = summary.join(terrain)
         return summary.reset_index()
 
     cluster_noise = int((gdf["cluster"] == -1).sum()) if "cluster" in gdf else 0
@@ -432,9 +391,6 @@ def write_run_report(
             "",
             "## Spatial Diagnostics",
             f"- NN analysis enabled: {spatial_diag.get('nn_enabled', False)}",
-            f"- Ripley's K enabled: {spatial_diag.get('ripley_enabled', False)}",
-            f"- Ripley radii (m): {', '.join(str(v) for v in spatial_diag.get('ripley_radii', []))}",
-            f"- Ripley rows: {spatial_diag.get('ripley_rows', 0)}",
             f"- KDE enabled: {spatial_diag.get('kde_enabled', False)}",
             f"- KDE bandwidths (m): {', '.join(str(v) for v in spatial_diag.get('kde_bandwidths', []))}",
             f"- KDE rows: {spatial_diag.get('kde_rows', 0)}",
@@ -458,13 +414,13 @@ def write_run_report(
     else:
         lines.append("- Not computed (no clusters or variables available).")
 
-    taph_stats = summary.get("taphonomy", {})
-    lines.extend(["", "## Taphonomic context (terrain-intrinsic)"])
-    if taph_stats:
-        for context_name, context_count in taph_stats.items():
-            lines.append(f"- {context_name}: {context_count}")
+    terrain_stats = summary.get("terrain_position", {})
+    lines.extend(["", "## Terrain position (terrain-intrinsic)"])
+    if terrain_stats:
+        for position_name, position_count in terrain_stats.items():
+            lines.append(f"- {position_name}: {position_count}")
     else:
-        lines.append("- Taphonomic classification disabled or unavailable.")
+        lines.append("- Terrain-position classification disabled or unavailable.")
 
     lines.extend(["", "## Output files"])
     if output_paths:
