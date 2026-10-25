@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "Terrain-based clustering of archaeological surface finds"
+version: 1.3.0
+date-released: 2026-10-25
+authors:
+  - family-names: "Cerrillo Cuenca"
+    given-names: "Enrique"
+    email: "enriqcer@ucm.es"
+    affiliation: "Complutense University of Madrid"
+    orcid: "https://orcid.org/0000-0002-2476-0472"
+repository-code: "https://github.com/ecerrillo/landscape-clustering-pipeline"
+license: MIT
+abstract: >-
+  Landscape analysis pipeline for archaeological surface survey data. From a
+  LiDAR-derived DEM it computes slope and topographic position, classifies the
+  terrain into erosion–transport–deposition zones, and clusters surface finds
+  with HDBSCAN over a terrain-cost distance matrix. It includes a sensitivity
+  analysis of the clustering and a cell-scale negative binomial model of the
+  association between prehistoric and historic finds, together with a sample
+  dataset (PNOA-derived DEM tile and 225 points) for end-to-end verification.
+keywords:
+  - archaeology
+  - surface survey
+  - HDBSCAN
+  - spatial analysis

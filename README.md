@@ -122,9 +122,17 @@ should be scaled back up for a full-size dataset).
 - `sensitivity_analysis.py` — post-hoc robustness check (`python sensitivity_analysis.py --config config.yml`)
 - `cell_density_model.py` — cell-scale prehistoric/historic density model (`python cell_density_model.py --config config.yml`)
 - `tests/` — pytest suite (`python -m pytest tests/`)
+- `CITATION.cff` — citation metadata (also used by Zenodo)
 - `data/dem/sample_tile.tif` — sample DEM (2 m resolution, ~1 km²)
 - `data/index.csv` — DEM tile index (one row, points at the sample tile)
 - `data/points.gpkg` — 225-point sample (subset of the full project dataset falling within the sample tile)
+
+## Citation
+
+If you use this software, please cite it using the metadata in
+[`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button shows
+it in APA and BibTeX). Each release is archived on Zenodo with its own DOI;
+cite the DOI of the version you used.
 
 ## Data attribution
 
