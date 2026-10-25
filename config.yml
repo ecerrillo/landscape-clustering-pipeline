@@ -102,6 +102,22 @@ plots:
   make_boxplots: true             # Per-variable boxplots grouped by material layer and by cluster
   make_pairplot: true             # Pairwise scatter/density matrix of raster-derived features
 
+# Cell-scale association between prehistoric and historic finds
+# (cell_density_model.py, run after main.py). Prehistoric finds are counted
+# per fully surveyed square cell and modelled with a negative binomial (NB2)
+# regression on the presence and density of historic finds. See the module
+# docstring and README.md for the model and its interpretation.
+cell_density_model:
+  cell_sizes_m: [20, 40]       # Cell sides (m); two or more sizes assess sensitivity to the MAUP
+  block_size_m: 200.0          # Side (m) of the spatial blocks used for block-clustered robust errors
+  reference_h_ha: null         # Reference historic density (finds/ha) for the presence effect; null = geometric mean over cells with historic finds at the smallest cell size
+  survey_area: null            # Polygon layer of the surveyed area; null = footprint of the DEM tiles in paths.dem_index
+  survey_layer: null           # Layer name inside survey_area (null = default layer)
+  zone_field: null             # Optional field in survey_area identifying survey zones (entered as fixed effects)
+  historic_values: null        # Values of point_filter.field identifying historic finds; null = point_filter.exclude_values
+  exclude_historic_ids: []     # Historic records to exclude (e.g. classification conflicts), matched on id_field
+  id_field: "fid"              # Field used to match exclude_historic_ids
+
 # What to write under outputs/.
 output:
   save_gpkg: true                              # Write the enriched point layer (all derived columns) as a GeoPackage
