@@ -54,6 +54,48 @@ never drift from the pipeline it is checking. It writes a markdown report to
 — no figures. Pass `--quick` for a fast smoke test with reduced replicate and
 grid counts.
 
+### Cell-scale density model
+
+Tests whether prehistoric finds are denser where historic finds occur. After
+`main.py` has produced `outputs/points_enriched.gpkg`:
+
+```bash
+python cell_density_model.py --config config.yml
+```
+
+The surveyed area is divided into square cells (20 m and 40 m by default, to
+assess sensitivity to the modifiable areal unit problem) and only fully
+surveyed cells are kept. In each cell, prehistoric finds (all, clustered and
+unclustered/noise) and historic finds are counted. The number of prehistoric
+finds is modelled with a negative binomial (NB2) regression with cell area as
+exposure (log offset), optional survey-zone fixed effects, and two historic
+terms:
+
+- **presence** (`hpos`): ratio of prehistoric density between a cell with
+  historic finds at a reference density and a cell without them;
+- **intensity** (`lp`): change in prehistoric density when historic density
+  doubles, among cells with historic finds.
+
+Standard errors are clustered by 200 m spatial blocks, with t intervals on
+G − 1 degrees of freedom. Settings are under `cell_density_model` in
+`config.yml`; historic finds are, by default, the values excluded by
+`point_filter`, and the survey area defaults to the DEM tile footprint. It
+writes `outputs/tables/cell_density_model.csv`, the cell counts per size and
+`outputs/reports/cell_density_report.md`. A model that cannot be estimated
+(e.g. too few cells with both kinds of finds, or fewer than ten blocks) is
+reported as failed rather than dropped; on the 225-point sample this happens
+for clustered finds at 20 m.
+
+### Tests
+
+```bash
+python -m pytest tests/
+```
+
+The tests check the grid (only fully surveyed cells, conservation of
+counts, zone assignment), recover a simulated presence effect, and run the
+model on the bundled sample.
+
 ## Using your own data
 
 Replace the contents of `data/` and edit `config.yml` (`paths.dem_index`,
@@ -69,6 +111,8 @@ should be scaled back up for a full-size dataset).
 - `main.py` — entry point (`python main.py --config config.yml`)
 - `raster_processing.py`, `hdbscan_clustering.py`, `generate_reports.py` — pipeline modules
 - `sensitivity_analysis.py` — post-hoc robustness check (`python sensitivity_analysis.py --config config.yml`)
+- `cell_density_model.py` — cell-scale prehistoric/historic density model (`python cell_density_model.py --config config.yml`)
+- `tests/` — pytest suite (`python -m pytest tests/`)
 - `data/dem/sample_tile.tif` — sample DEM (2 m resolution, ~1 km²)
 - `data/index.csv` — DEM tile index (one row, points at the sample tile)
 - `data/points.gpkg` — 225-point sample (subset of the full project dataset falling within the sample tile)
