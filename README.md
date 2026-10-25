@@ -25,8 +25,16 @@ downslope-redistributed or terrain-position-affected material.
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py --config config.yml
+python run_all.py --config config.yml
 ```
+
+`run_all.py` runs the three analysis steps in order — `main.py` (pipeline),
+`sensitivity_analysis.py` (robustness of the clustering) and
+`cell_density_model.py` (cell-scale density model) — stopping at the first
+failure and listing the reports written. Use `--quick` for a reduced
+sensitivity sweep (smoke test only) and `--skip` to leave out steps, e.g.
+`python run_all.py --config config.yml --skip sensitivity`. Each step can
+also be run on its own, as described below.
 
 GDAL's Python bindings (`osgeo.gdal`) are required and are not always
 installable via pip alone depending on platform — if `pip install -r
@@ -108,14 +116,23 @@ should be scaled back up for a full-size dataset).
 
 ## Files
 
-- `main.py` — entry point (`python main.py --config config.yml`)
+- `run_all.py` — runs every step in order (`python run_all.py --config config.yml`)
+- `main.py` — pipeline entry point (`python main.py --config config.yml`)
 - `raster_processing.py`, `hdbscan_clustering.py`, `generate_reports.py` — pipeline modules
 - `sensitivity_analysis.py` — post-hoc robustness check (`python sensitivity_analysis.py --config config.yml`)
 - `cell_density_model.py` — cell-scale prehistoric/historic density model (`python cell_density_model.py --config config.yml`)
 - `tests/` — pytest suite (`python -m pytest tests/`)
+- `CITATION.cff` — citation metadata (also used by Zenodo)
 - `data/dem/sample_tile.tif` — sample DEM (2 m resolution, ~1 km²)
 - `data/index.csv` — DEM tile index (one row, points at the sample tile)
 - `data/points.gpkg` — 225-point sample (subset of the full project dataset falling within the sample tile)
+
+## Citation
+
+If you use this software, please cite it using the metadata in
+[`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button shows
+it in APA and BibTeX). Each release is archived on Zenodo with its own DOI;
+cite the DOI of the version you used.
 
 ## Data attribution
 
